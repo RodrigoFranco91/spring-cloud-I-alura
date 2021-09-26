@@ -1,0 +1,210 @@
+Neste capitulo falamos sobre Load Balancer e Spring Feign.
+
+
+Hoje os nosso Serviços (Loja e Fornecedor) se comunicam no Eureka e isso possibilita o serviço Loja conversar com o Fornecedor sem
+ter que saber seu IP e Porta, basta saber o nome da aplicação. Mas imagina que tenhamos 3 instancias (3 máquinas) rodando a aplicação
+Fornecedor e o serviço Loja vai fazer uma requisição para Fornecedor, com qual das 3 instancias o serviço Loja vai se comunicar? Quem
+resolve isso? O responsável por isso é o Ribbon, biblioteca que já estamos usando! E seu uso se deu com a anotação @LoadBalanced no
+método que cria RestTemplate lá no projeto Loja na class principal (onde tem método main()). Veja o método anotado:
+
+	@Bean
+	@LoadBalanced
+	public RestTemplate getRestTemplate() {
+		return new RestTemplate();
+	}
+	
+Ou seja, o Ribbon (@LoadBalanced) é que gerencia as instancias disponiveis e que faz o balanceamento de qual instancia irá tratar uma
+requisição.
+
+Siga o passo a passo a seguir para criamos mais uma instancia do Serviço Fornecedor e ver que o Ribbon descobre todas as instancias
+disponiveis:
+
+1) No projeto Loja, na classe CompraService crie o atributo:
+
+	@Autowired
+	private DiscoveryClient eurekaClient;
+	
+Do pacote: org.springframework.cloud.client.discovery.DiscoveryClient;
+
+2) Dentro do metodo realizaCompra() adiciona o trecho:
+
+	//Pegando todas instancias de fornecedor. QUem faz isso é o Ribbon.
+	eurekaClient.getInstances("fornecedor").stream()
+	.forEach(fornecedor -> {
+		System.out.println("localhost:"+ fornecedor.getPort());
+	});
+	
+3) Vamos agora criar mais uma instancia do Serviço Forneceodr. Para isso faça:
+
+	- Na aba Boot Dashboard seleciona o serviço Fornecedor -> botão direito -> duplicate config -> no item novo que surgiu
+	devemos clicar com botão direito -> Open Config -> ir na aba Arguments -> digitar --server.port=8082 -> Apply
+	
+4) Faça a requisição POST em http://localhost:8080/compra e veremos no console de Loja o print de cada Instancia disponivel.
+
+
+
+Para o serviço Loja se comunicar com o serviço Fornecedor nós usamos o RestTemplate, mas hoje em dia já outro tipo de Cliente HTTP, 
+no caso o Feign, e este já usa o Ribbon (LoadBalanced) por padrão. Siga o passo a passo para usar o Feign (os passos são feitos no 
+projeto Loja):
+
+1) Na classe CompraService remova ou comente os atributos do tipo DiscoveryClient e RestTemplate. Apague ou comente também a
+implementaco do metodo realizCompra(), pois vamos refaze-la.
+
+2) No projeto Loja vamos clicar com botão direito no projeto -> Spring -> Add Starters -> E adicionar a dependencia OpenFeign
+
+3) Vamos criar a interface FornecedorClient e anotá-la com @FeignClient("fornecedor") esse argumento "fornecedor" poderia ser o 
+PATH do serviço externo que vamos consultar, mas como estamos usando Eureka, basta por apenas o identificador (nome) do Serviço
+
+4) Nesta interface vamos criar uma assinatura de metodo responsável por fazer a requisico ao Serviço Fornecedor. Veja a assinatura:
+
+	@GetMapping("/info/{estado}")
+	InfoFornecedorDTO getInfoPorEstado(@PathVariable String estado);
+
+Veja que nessa assinatura de método indicamos que vamos fazer uma consulta via GET para o path /info/estado, mas que estado será
+subistituido por um valor que será passado por quem chamar esse serviço.
+
+5) Veja como ficou a interface:
+
+	@FeignClient("fornecedor")
+	public interface FornecedorClient {
+		
+		@GetMapping("/info/{estado}")
+		InfoFornecedorDTO getInfoPorEstado(@PathVariable String estado);
+
+	}
+
+6) Para habilitar o Feign no projeto ainda precisamos ir na classe principal (a que tem método main()) e adicionar em cima da classe
+a anotação @EnableFeignClients
+
+7) Agora na clase CompraService podemos cirar um atributo do tipo FornecedorClient (interface que faz a requisição) e anotá-lo com
+@AutoWired.
+
+	@Autowired
+	private FornecedorClient fornecedorClient;
+	
+8) Agora o método realizaCompra() vai usar o FornecedorClient, veja seu código:
+
+	public void realizaCompra(CompraDTO compra) {
+		
+		InfoFornecedorDTO infoPorEstado = fornecedorClient.getInfoPorEstado(compra.getEndereco().getEstado());
+		
+		System.out.println(infoPorEstado.getEndereco());
+	}
+
+
+
+O professor do Curso disponibilizou o Serviço Fornecedor completo, pois assim vamos ganhar tempo para discutir assuntos importantes.
+Ao pegar o projeto Fornecedor do Professor tivemos que fazer as seguintes ações:
+
+- Povar no banco a tabela Produto;
+
+- Agora temos o endpoint listado produto por estado, por exemplo: localhost:8081/produto/go
+
+- Criar uma requisição para criar um pedido. No caso será um POST para localhost:8081/pedido, passando no corpo o ID do produto
+e o endereço para entrega. Veja:
+
+	[
+	    {
+		"id": 1,
+		"quantidade": 5
+	    },
+	    {
+		"id": 2,
+		"quantidade": 1
+	    }
+	]
+
+
+Agora temos que fazer o serviço Loja ao receber uma compra (metodo realizaCompra() lá da classe CompraService) chamar o serviço
+do fornecedor que de fato cria o pedido. Para isso siga o passo a passo:
+
+1) Na classe CompraService (projeto Loja), no método realizaCompra() adicionar o trecho:
+
+		InfoPedidoDto pedido = fornecedorClient.realizaPedido(compra.getItens());
+
+2) Vai surgir diversos erros, vamos corrigir. O primeiro é que na interface FornecedorClient não há o método realizaPedido(), então
+vamos criar:
+
+	@PostMapping("/pedido")
+	InfoPedidoDto realizaPedido(List<ItemDaCompraDto> itens);
+	
+3) Outro erro é porque não temos a classe InfoPedidoDto, vamos criar:
+
+	public class InfoPedidoDto {
+		
+		private Long id;
+		private Integer tempoDePreparo;
+
+
+		//GETTER E SETTER
+	}
+
+
+4) Vamos fazer o método realizaCompra() de CompraService retornar um objeto Compra (vamos ainda criar essa classe). Veja como ficou
+o metodo realizaCompra():
+
+	public Compra realizaCompra(CompraDTO compra) {
+		
+		InfoFornecedorDTO infoPorEstado = fornecedorClient.getInfoPorEstado(compra.getEndereco().getEstado());
+		
+		InfoPedidoDto pedido = fornecedorClient.realizaPedido(compra.getItens());
+		
+		System.out.println(infoPorEstado.getEndereco());
+		
+		Compra compraSalva = new Compra();
+		compraSalva.setPedidoId(pedido.getId());
+		compraSalva.setTempoDePreparo(pedido.getTempoDePreparo());
+		compraSalva.setEnderecoDestino(compra.getEndereco().toString());
+	
+		return compraSalva;
+	}
+	
+5) Criar no pacote model a classe Compra:
+
+	public class Compra {
+		
+		private Long pedidoId;
+		private Integer tempoDePreparo;
+		private String enderecoDestino;
+		
+		//Getter e Setter
+		
+	}
+	
+6) No metodo realizaCompra() da classe CompraController passa a retonar Compra, veja como ficou:
+
+	@RestController
+	@RequestMapping("/compra")
+	public class CompraController {
+		
+		@Autowired
+		private CompraService compraService;
+
+		@PostMapping
+		public Compra realizaCompra(@RequestBody CompraDTO compra) {
+			return compraService.realizaCompra(compra);
+		}
+	}
+	
+	
+Agora a requisição POST para http://localhost:8080/compra com o corpo:
+ 
+	{
+	    "itens":[
+		{
+		    "id": 1,
+		    "quantidade" : 5
+		},
+		{
+		    "id": 2,
+		    "quantidade" : 1
+		}
+	    ],
+	    "endereco" : {
+		"rua" : "Rua da Maria",
+		"numero" : 123,
+		"estado" : "GO"
+	    }
+	}
+
+Deve gerar um novo pedido e um novo item de pedido no banco de dados.

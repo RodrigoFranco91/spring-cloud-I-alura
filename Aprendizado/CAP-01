@@ -1,0 +1,113 @@
+Neste capítulo falamos sobre o domínio de negócio da nossa aplicação, sobre o ambiente de desenvolvimento e implementamos o primeiro
+microserviço.
+
+
+Nosso projeto se trata de uma Floricultura. A floricultura disponibiliza um catálago de produto por estado, por exemplo: João, que 
+está em São Paulo, quer presentear a namorada dele, Maria, que está em Goiás. Como é que a floricultura vai resolver isso? Ela tem um 
+cadastro de fornecedor por região, onde cada fornecedor tem a liberdade de dizer quais os produtos que ele tem disponível, e o 
+fornecedor manda essa informação para a floricultura. Então quando o João chega dizendo que ele quer mandar um presente para uma 
+pessoa que está em um outro estado, a floricultura vai pegar o catálogo disponível para aquele estado.
+
+João então vai poder selecionar o produto que ele quer comprar e a floricultura irá conversar com o fornecedor do estado do 
+destinatario.
+
+O fornecedor irá pegar o pedido feito por Pedro, analisar quanto tempo levará para finalizar o pedido e avisará a Floricultura. 
+Depois disso a floricultura entra em contato com a transportadora, já sabendo o prazo para o fornecedor finalizar o pedido e reserva
+uma entrega (passando endereço de origem e de destino). A transportadora devolve um vouncher para floricultura.
+
+
+Veja que nessa explicação há diversos contextos: Loja (FLoricultura), Fornecedor, Transportador.
+
+Um microserviço é a implementação de um contexto.
+
+
+
+Vamos implementar o serviço de compra, onde usuário passara os itens que ele vai comprar (id do produto e sua quantidade) e  o 
+endereço de destino. Veja como ficará a requisição para se fazer um pedido:
+
+Path: http://localhost:8080/compra
+Verbo: POST
+Body:
+
+	{
+	    "itens":[
+		{
+		    "id": 1,
+		    "quantidade" : 5
+		},
+		{
+		    "id": 2,
+		    "quantidade" : 1
+		}
+	    ],
+	    "endereco" : {
+		"rua" : "Rua da Maria",
+		"numero" : 123,
+		"estado" : "GO"
+	    }
+	}
+	
+Para implementar esse serviço, siga o passo a passo:
+
+1) Abrir a IDE Spring Tool Suite;
+
+2) Selecionar a opção: Create new Spring Starter Project, com a seguinte configuração:
+
+	Name = loja
+	Group = br.com.alura.microservice.loja
+	ArtifcatId = loja
+	Description = Loja
+	Package = br.com.alura.microservice.loja
+
+Clicar no botão Next;
+
+3) Na tela das dependencias devemos adicionar a Spring Web.
+
+4) Criar a classe CompraController, que será anotada com @RestController e @RequestMapping("/compra"). Nesta classe criar o metodo
+realizaCompra() que irá receber como argumento um CompraDTO anotado com @RequestBoyd. O método realizaCompra() deve ser anotado com
+@PostMapping. Veja como ficou a classe e o metodo:
+
+	@RestController
+	@RequestMapping("/compra")
+	public class CompraController {
+
+		@PostMapping
+		public void realizaCompra(@RequestBody CompraDTO compra) {
+			
+		}
+	}
+	
+5) Precisamos criar a classe CompraDTO. Nessa classe teremos 2 atributos, um será uma Lista chamada itens (o nome tem que ser igual
+colocamos na requisição antes do passo 1). Essa lista será do tipo ItemDaCompraDto. O outro atributo será do tipo EnderecoDto. Veja
+como ficou:
+
+	public class CompraDTO {
+		
+		private List<ItemDaCompraDto> itens;
+		
+		private EnderecoDto endereco;
+		
+		//Getter e Setters
+	}
+	
+6) Agora temos que criar a classe ItemDaCompraDto que terá os atributos: id e quantidade. Veja:
+
+	public class ItemDaCompraDto {
+		
+		private Long id;
+		private int quantidade;
+		
+		//Getter e Setters
+	}
+
+7) Agora temos que criar a classe EnderecoDto que terá os atributos: rua, numero, estado. Veja:
+
+	public class EnderecoDto {
+
+		private String rua;
+		private int numero;
+		private String estado;
+		
+		//Getters e Setters
+		
+	}

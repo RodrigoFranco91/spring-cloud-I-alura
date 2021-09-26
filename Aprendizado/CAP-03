@@ -1,0 +1,167 @@
+Neste capitulo falamos sobre o Spring Config Server.
+
+
+Atualmente cada projeto nosso tem o arquivo application.properties ou application.yml, é nesse arquivo que colocamos as configurações
+de cada projeto, por exemplo as informações para se conectar ao banco de dados. É comum cada aplicação ter mais de um arquivo desse 
+tipo, pois para cada contexto (teste, certificação, produção) teremos uma configuração diferente. E o crescimento da quantidade desse
+arquivo dificulta a manutenção e outra, Microserviço é feito para ser levantado para núvem, imagina em cada servidor ter que criar
+esse arquivos, não é viável!
+
+Uma solução é usar o Spring Config Server, dessa forma teremos os arquivos application.properties ou application.yml em apenas um local
+e o Spring Config Server vai saber mapear esses arquivos para a sua aplicação, assim se algo mudar teremos que mexer em apenas um 
+ponto.
+
+Siga o passo a passo para criar um Servidor de Configuração (Spring Config Server):
+
+1) Vamos no arquivo application.yml do serviço Fornecedor e retirar o trecho que faz a configuração do banco de dados, no caso:
+
+	spring:
+	  datasource:
+	    password: mysql
+	    username: root
+	    url: jdbc:mysql://localhost:3306/fornecedor
+	  jpa:
+	    hibernate:
+	      ddl-auto: update
+	      
+2) Em algum local do seu computador (diretório) crie a pasta chamada microservice-repo e dentro dela crie o arquivo fornecedor.yml
+com o conteúdo:
+
+	spring:
+	  datasource:
+	    password: mysql
+	    username: root
+	    url: jdbc:mysql://localhost:3306/fornecedor
+	  jpa:
+	    hibernate:
+	      ddl-auto: update
+	      
+3) Crie um novo projeto (Spring Starter Project) com a seguinte configuraco:
+
+	Name = config-server
+	Group = br.com.alura.microservice.config
+	Artifact = config-server
+	Description = ConfigServer
+	Package = br.com.alura.microservice.config      
+	
+Em dependencias devemos adicionar:
+
+	Config Server
+
+4) Na classe ConfigServerApplication deste projeto (onde tem o metodo main()) devemos adicionar em cima da classe a anotação 
+@EnableConfigServer
+
+5) Tranformamos o arquivo application.properties para application.yml e adicionamos o trecho:
+
+	server:
+	  port: 8888
+	  
+	spring:
+	  profiles:
+	    active: native
+	  cloud:
+	    config:
+	      server:
+		native:
+		  search-locations: /home/rodrigo/microservice-repo
+		  
+Veja, é em search-locations que devemos colocar o endereço de criação da pasta que tem o arquivo .yml
+		  
+8) Por fim, para testar se está tudo funcionando, podemos fazer a rquisição:
+
+Verbo: GET
+Path: http://localhost:8888/fornecedor/default
+
+Veja que usamos /fornecedor, pois é o nome do arquivo .yml que criamos á na pasta microservice-repo. O /default é que é o profile
+padrão, se tivessemos o arquivo fornecedor-dev.yml no lugar do /default seria /dev.
+
+
+Agora temos que fazer o serviço Fornecedor usar o application.yml que foi configurado no ConfigServer. Siga o passo a passo para 
+isso:
+
+1) Abrir o projeto Fornecedor, abrir seu arquivo application.yml e teremos que adicionar o profile que ele quer acessar (lembra que
+no postman usamos localhost:8888/fornecedor/default), então temos que definir que o profile a ser acessado será o default. Devemos 
+também indicar o endereço, no caso localhost:8888. Veja como vai ficar o arquivi application.yml
+
+	spring:
+	  application:
+	    name: 'fornecedor'
+	  profiles:
+	    active: default
+	  cloud:
+	    config:
+	      uri: http://localhost:8888
+	     
+Só que teremos um problema, ao subir essa aplicação já teremos um erro de cara, pois o Hibernate vai de cara procurar a configuração
+do banco de dados, para resolver isso vamos ter que criar no mesmo diretorio do arquivo application.yml o arquivo bootstrap.yml,
+pois esse arquivo é lido antes de aplicação subir! 
+
+No arquivo bootstrap.yml adicionar o trecho: 
+
+	spring:
+	  application:
+	    name: 'fornecedor'
+	  profiles:
+	    active: default
+	  cloud:
+	    config:
+	      uri: http://localhost:8888
+	      
+Esse mesmo trecho já pode ser apagado do arquivo application.yml
+
+Nas versões atuais do Spring devemos adicionar a seguinte dependencia no projeto (cliente do ServerConfig, neste caso Fornecedor):
+
+	<dependency>
+		<groupId>org.springframework.cloud</groupId>
+		<artifactId>spring-cloud-starter-bootstrap</artifactId>
+	</dependency>
+	
+2) Clique com botão direito no projeto (Fornecedor) -> Spring -> Edit Staters -> E adicione a dependencia: Config Client
+
+
+
+Até o momento nosso Config Server busca suas configurações acessando um diretório da máquina local e isso não é nada prático, 
+dificulta o trabalho em time! Uma solução é coloar essa configuração no Github e fazer o ConfigServer pegar do Github. Siga o passo
+a passo para fazer isso:
+
+1) Crie um repositório no Github, eu criei um chamado: microservice-repo-alura
+
+2) Dentro desse repositório criamos o arquivo /fornecedor/fornecedor.yml e o conteudo desse arquivo será:
+
+	spring:
+	  datasource:
+	    password: mysql
+	    username: root
+	    url: jdbc:mysql://localhost:3306/fornecedor
+	  jpa:
+	    hibernate:
+	      ddl-auto: update
+	      
+Após isso devemos fazer o commit.
+
+3) Agora temos que abrir o serviço config-server e alterar sua configuração, então no arquivo application.yml vamos apagar o trecho:
+
+	spring:
+	  profiles:
+	    active: native
+	  cloud:
+	    config:
+	      server:
+		native:
+		  search-locations: /home/rodrigo/microservice-repo
+		  
+E vamos adicionar o trecho:
+
+	spring:
+	  cloud:
+	    config:
+	      server:
+		git:
+		  default-label: main
+		  uri: https://github.com/RodrigoFranco91/microservice-repo-alura
+		  search-paths: fornecedor
+		  
+Em uri: devemos adicionar o link do repositório criado e em search-paths: o caminho onde está o arquivo.
+
+Tenha em mente que quando criamos um arquivo e commitamos diretamente no Github ele cria a brach main e o Spring por padrão espera
+a branch master! Mudamos seu valor com default-label:

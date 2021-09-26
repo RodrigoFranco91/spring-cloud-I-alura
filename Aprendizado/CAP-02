@@ -1,0 +1,280 @@
+Neste capítulo falamos sobre Service Registry e usamos como opcção o Eureka.
+
+Agora já estamos recebendo o pedido de compra, mas através do endereço informado pelo usuário teremos que consultar o Fornecedor
+daquele estado (endereço informado pelo usuário). Fornecedor será outro microservico que vamos consultar. Como que se faz uma consulta?
+Ou seja, como um Microserviço conversa com outro? Simples, através de um Http Client. Siga o passo a passo:
+
+1) A classe CompraController deverá ter um atributo do tipo CompraService anotado com @Autowired.
+
+2) No metodo realizaCompra() da classe CompraController vamos chamar o método realizaCompra() da classe CompraService e será o local 
+que faremos a consulta ao microserviço de Fornecedor. Veja Como ficou a classe CompraController:
+
+	@RestController
+	@RequestMapping("/compra")
+	public class CompraController {
+		
+		@Autowired
+		private CompraService compraService;
+
+		@PostMapping
+		public void realizaCompra(@RequestBody CompraDTO compra) {
+			compraService.realizaCompra(compra);
+		}
+	}
+	
+3) Na classe CompraService devemos anotá-la com @Service. NO seu método realizaCompra() vamos criar o HTTP Cliente, ele é feito com
+a classe RestTemplate. Veja como ficou a classe CompraService:
+
+	@Service
+	public class CompraService {
+
+		public void realizaCompra(CompraDTO compra) {
+			
+			//Criando um Client HTTP
+			//Argumentos de exchange() são: path, o verbo, informacoes, recptor da resposta.
+			//A resposta cairá no exchange.
+			RestTemplate client = new RestTemplate();
+			ResponseEntity<InfoFornecedorDTO> exchange =  client.exchange("http://localhost:8081/
+		info/"+compra.getEndereco().getEstado(),
+			HttpMethod.GET, null, InfoFornecedorDTO.class);
+			
+		}
+
+	}
+	
+Tenha em mente que o RestController faz requisiçoes Sincronas, ou seja, toda requisição que acontece a execução é pausada até chegar
+a resposta.
+
+
+Vamos agora implementar o serviço do Fornecedor, serviço que é consultado pelo CompraService. Siga o passo a passo:
+
+1) Crie um novo projeto (Spring Starter Project) com a seguinte configuraco:
+
+	Name = fornecedor
+	Group = br.com.alura.microservice.fornecedor
+	Description = Fornecedor
+	Package = br.com.alura.microservice.fornecedor
+	
+Na seção de dependencias, devemos adicionar:
+
+	Spring Web, Driver Mysql e Spring Data JPA
+	
+2) Lembra que em CompraService ao fazer a requisição para Fornecedor indicamos a porta 8081?! Entao, devemos configurar esse projeto
+para rodar na 8081. Isso é feito no arquivop application.properties que fica na pasta src/main/resources. Mas vamos nomear esse
+arquivo para application.yml (para facilitar o entendimento) e colocar o conteudo:
+
+	server:
+	  port: 8081
+	
+3) Esse serviço terá que consultar no banco de dados, pois através do estado fornecido pelo usuário vamos consultar o endereço do
+fornecedor. Para configurar o banco de dados devemos adicionar o seguinte trecho no arquivo application.properties:
+
+	spring:
+	  datasource:
+	    password: mysql
+	    username: root
+	    url: jdbc:mysql://localhost:3306/fornecedor
+	  jpa:
+	    hibernate:
+	      ddl-auto: update	
+	      
+Lembre-se de criar o banco de dados (schema): fornecedor
+  
+4) Vamos agorar cirar a classe InfoController anotado com @RestController e @RequestMapping. Veja como ficou essa classe:
+
+	@RestController
+	@RequestMapping("/info")
+	public class InfoController {
+
+		@Autowired
+		private InfoService infoService;
+		
+		@GetMapping("/{estado}")
+		public InfoFornecedor getInfoPorEstado(@PathVariable String estado) {
+			return infoService.getInfoPorEestado(estado);
+		}
+	}
+
+
+5) Na classe InfoController estamos chamando a classe InfoService. Devemos criá-la, veja como ficou:
+
+	@Service
+	public class InfoService {
+
+		@Autowired
+		private InfoRepository infoRepository;
+		
+		public InfoFornecedor getInfoPorEestado(String estado) {
+
+			return infoRepository.findByEstado(estado);
+			
+		}
+
+	}
+	
+6) Veja que a InforService usa a interface InforRepository. Devemos criá-la, veja como ficou:
+
+	@Repository
+	public interface InfoRepository extends JpaRepository<InfoFornecedor, Long>{
+
+		InfoFornecedor findByEstado(String estado);
+	}
+
+7) Devemos criar a classe InfoFornecedor, que é a classe modelo que representa a tabela do banco de dados. Veja essa classe:
+
+	@Entity
+	public class InfoFornecedor {
+
+		@Id
+		@GeneratedValue(strategy = GenerationType.IDENTITY)
+		private Long id;
+		
+		private String nome;
+		private String estado;
+		private String endereco;
+		
+		//Getter e Setters
+	}
+	
+8) Podemos agora povoar o banco de dados forneceodr com alguns dados para podermos testar no proximo passo;
+
+9) Agora no postman podemos testar esse servico, fazendo a requisição:
+
+Path: http://localhost:8081/info/GO
+Verbo: GET
+
+Se funcionou, tenha em mente que o Serviço Loja vai tambem conseguir fazer a requisição com o RestTamplate!
+
+10) Tenha em mente que depois não vamos mais usar o RestTemplate! Vamos fazer isso se tornar dinamico! Não vamos deixar escrito no
+código isso!
+
+Tenha em mente que agora há uma dependencia entre projetos! O serviço da Loja depende do servico de Fornecedor!
+
+
+
+Até agora o Serviço Loja na classe CompraService quando criamos o RestTemplate é fixo o endereço do outro serviço a ser consultado,
+no caso o serviço de Fornecedor! MAs pense comigo, e se o IP do serviço mudar, teremos que alterar em todos os lugares! Então
+no lugar de digitar o endereço (PATH) seria bom digitar o nome do serviço! Ou seja, no lugar de:
+
+	ResponseEntity<InfoFornecedorDTO> exchange =  client.exchange("http://localhost:8081/
+	info/"+compra.getEndereco().getEstado(),HttpMethod.GET, null, InfoFornecedorDTO.class);
+	
+	Colocar:
+	
+	ResponseEntity<InfoFornecedorDTO> exchange =  client.exchange("http://fornecedor/
+	info/"+compra.getEndereco().getEstado(),HttpMethod.GET, null, InfoFornecedorDTO.class);
+	
+E isso é possivel com um Service Discovery! Esse projeto será responsável por mapear o IP com o nome de cada serviço. Existe 
+diversos Service Discovery, vamos usar o Eureka. Siga o passo a passo para implementá-lo:
+
+1) Crie um novo projeto (Spring Starter Project) com a seguinte configuraco:
+
+	Name = eureka-server
+	Group = br.com.alura.microservice.eureka
+	Description = Eureka Service
+	Package = br.com.alura.microservice.eureka
+	
+Na seção de dependencias, devemos adicionar:
+
+	Eureka Server
+	
+Tenha em mente que só funcionou usando o JDK 8! (Mude no arquivo pom.xml)
+	
+2) Vamos novamente transformar o arquivo application.properties para yaml (vai se chamar application.yml) e depois adicionar o 
+trecho:
+
+	eureka:
+	  client:
+	    fetch-registry: false
+	    register-with-eureka: false
+	    
+Esse trecho é para esse projeto não se cadastrar no Eureka, pois ele mesmo é o Eureka!
+
+3) Na classe EurekaServerApplication, ou seja, a classe que tem o metodo main() devemos adicionar na classe a anotação 
+@EnableEurekaServer
+
+4) Por padrão usamos o Eureka na porta 8761. Vamos configurá-lo assim, então no arquivo application.yml adicionar o trecho:
+
+	server:
+	  port: 8761
+
+5) Podemos ver quais aplicações o Eureka esta mapeando fazendo uma requisição GET para: http://localhost:8761/eureka/apps
+
+
+Agora já temos o Eureka funcionando! Devemos ir nos Serviçoes e fazer eles se registrarem no Eureka. Siga o passo a passo:
+
+1) Clique com botão direito no projeto -> Spring -> Edit Staters -> E adicione a dependencia: Eureka Dicovery Client
+
+2) Abra o serviço de compra, no arquivo application.yml e adicione o trecho:
+
+
+	spring:
+	  application:
+	    name: 'loja'
+	    
+	eureka:
+	  client:
+	    register-with-eureka: true
+	    fetch-registry: true
+	    service-url:
+	      defaultZone: http://localhost:8761/eureka
+	      
+3) Devemos repetir o passo 1 e o 2 para o projeto fornecedor. O seu arquivo application.yml já tinha o comando spring, então
+só precisamos adicionar o application e o name. O seu arquivo ficou assim:
+
+	server:
+	  port: 8081
+
+
+	spring:
+	  application:
+	    name: 'fornecedor'
+	  datasource:
+	    password: mysql
+	    username: root
+	    url: jdbc:mysql://localhost:3306/fornecedor
+	  jpa:
+	    hibernate:
+	      ddl-auto: update
+	      
+		  
+	eureka:
+	  client:
+	    register-with-eureka: true
+	    fetch-registry: true
+	    service-url:
+	      defaultZone: http://localhost:8761/eureka
+	      
+	      
+Agora nosso dois serviços já estão registrados no Eurkea. Mas ainda não funciona, pois o serviço loja faz uma requisição para
+fornecedor atraves do RestTemplate, mas um RestTemplate não sabe resolver o nome do IP com o Eureka! Temos que fazer o Spring criar
+o RestTemplate e não criá-lo via new. Siga o passo a passo para ensinar o Spring a criar um RestTemplate com a inteligencia 
+necessaria para resolver um IP via nome do serviço usando o Eureka! Siga o passo a passo:
+
+1) Na classe CompraService vamos remover a linha que faz new RestTemplate, no caso a linha:
+
+		RestTemplate client = new RestTemplate();
+		
+2) Na classe LojaApplication, que é a principal que tem o metodo main() adicione o seguinte método:
+
+	@Bean
+	@LoadBalanced
+	public RestTemplate getRestTemplate() {
+		return new RestTemplate();
+	}
+
+3) Na classe CompraService vamos criar um atributo do tipo RestTemplate e injetá-lo com @Autowired, veja:
+
+
+	@Autowired
+	private RestTemplate client;
+	
+4) Lembre-se de trocar o endereço IP pelo nome do serviço, no caso fornecedor. Ficando assim:
+
+ResponseEntity<InfoFornecedorDTO> exchange =  client.exchange("http://fornecedor/info/"+compra.getEndereco().getEstado(),
+		HttpMethod.GET, null, InfoFornecedorDTO.class);	
+	
+5) Agora tudo deve funcionar! Suba os 3 serviços e faça uma requisição para Loja (compra)
+
+
+Tenha em mente que quem faz a mágica da aplicação Loja conseguir acessar o Fornecedor é o RIBBON. Depois vamos entender mais isso!

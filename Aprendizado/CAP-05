@@ -1,0 +1,250 @@
+Neste capitulo falamos sobre Distributed Tracing e Spring Sleuth.
+
+
+Veja que nosso projeto (Aplicação) é formada por diversos projetos (Loja, Fornecedor, etc..) como vamos capturar os logs disso tudo?
+Pois se fosse tudo em uma única aplicação (Monolitica) seria fácil ver o log, mas com Microserviços como que fica? E para pior podemos
+ter várias instancias rodando de cada projeto...
+
+A primeira solução para esse problema que vamos dar é cada serviço vai exibir seu Log. Veremos que isso não é nada prático. Veremos
+que ao fazer uma requisição para Loja a mesma vai se comunicar com fornecedor e cada aplicação irá exibir seu LOG, desta maneira é 
+muito fácil nos perdermos (não encontrar o Log.) Siga o passo a passo para implementar essa solução:
+
+1) No projeto Loja, na classe CompraService vamos criar um atributo que será do tipo Logger, veja:
+
+	private static final Logger LOG = LoggerFactory.getLogger(CompraService.class);
+
+Tenha em mente que devemos usar o import de: org.slf4j.Logger
+
+2) Dentro do método realizaCompra() Vamos printar no log o seguinte conteudo:
+
+	LOG.info("Buscando informações do fornecedor do estado de {}", compra.getEndereco().getEstado());
+	
+	LOG.info("realizando um pedido");
+	
+3) Veja como ficou o metodo realizaCompra():
+
+	public Compra realizaCompra(CompraDTO compra) {
+		
+		LOG.info("Buscando informações do fornecedor do estado de {}", compra.getEndereco().getEstado());
+		InfoFornecedorDTO infoPorEstado = fornecedorClient.getInfoPorEstado(compra.getEndereco().getEstado());
+		
+		LOG.info("realizando um pedido");
+		InfoPedidoDto pedido = fornecedorClient.realizaPedido(compra.getItens());
+		
+		System.out.println(infoPorEstado.getEndereco());
+		
+		Compra compraSalva = new Compra();
+		compraSalva.setPedidoId(pedido.getId());
+		compraSalva.setTempoDePreparo(pedido.getTempoDePreparo());
+		compraSalva.setEnderecoDestino(compra.getEndereco().toString());
+	
+		return compraSalva;
+	}
+	
+4) Agora no projeto Fornecedor, na classe InfoController vamos criar um atributo que será do tipo Logger, veja:
+
+	private static final Logger LOG = LoggerFactory.getLogger(InfoController.class);
+
+5) Dentro do método getInfoPorEstado() devemos printar o log:
+
+	LOG.info("Recebido o pedido de informaçoes do forneceodr de estado {}", estado);
+	
+6) Veja como ficou o metodo getInfoPorEstado():
+
+	@GetMapping("/{estado}")
+	public InfoFornecedor getInfoPorEstado(@PathVariable String estado) {
+		LOG.info("Recebido o pedido de informaçoes do forneceodr de estado {}", estado);
+		return infoService.getInfoPorEestado(estado);
+	}
+	
+7) Agora no projeto Fornecedor, na classe PedidoController vamos criar um atributo que será do tipo Logger, veja:
+
+	private static final Logger LOG = LoggerFactory.getLogger(PedidoController.class);
+
+8) Dentro do metodo realizaPedido() printar o seguinte log:
+
+	LOG.info("pedido recebido");
+	
+9) Veja como ficou o metodo realizaPedido():
+
+	@RequestMapping(method = RequestMethod.POST)
+	public Pedido realizaPedido(@RequestBody List<ItemDoPedidoDTO> produtos) {
+		
+		LOG.info("pedido recebido");
+		return pedidoService.realizaPedido(produtos);
+	}
+	
+10) Faça no Postman uma requisição para realizar uma compra e depois veja no console os prints de LOG.
+Mas desta forma que fizemos é inviavel, fica dificil achar todos os LOGs. O ideal é juntar todos em unico lugar.
+
+
+
+Vamos agorar implementar a agregação de LOG's, ou seja, juntar os LOG's de diversos projetos.
+
+Para fazer essa Agragação de LOG vamos usar o Papertrail, devido sua facilidade de configuração (toda on-line), mas tenha em mente
+que há diversos agregadores de LOG.
+
+O Papertrail de graça armazena nossos LOG's por 7 dias.
+
+Siga o passo a passo para configurar o Papertrail:
+
+1) Entre no site: https://www.papertrail.com/ e faça uma conta;
+
+2) Clique no botão Add System e veja seu host:port (logs3.papertrailapp.com:28841);
+
+3) Navegue até Support ->  Docs & Help -> Busque no filtro por Java Logback -> Ache a seção com nome SyslogApper.
+
+4) Ao fazer o passo 3 veremos que temos que criar o arquivo logback.xml e adicionar o trecho informado no documento. Então na pasta
+src/main/resources (no mesmo nivel de application.yml) vamos criar o arquivo logback.xml com o conteudo:
+
+	<?xml version="1.0" encoding="UTF-8"?>
+	<configuration>
+
+		<appender name="PAPERTRAIL"
+			class="ch.qos.logback.classic.net.SyslogAppender">
+			<syslogHost>logsN.papertrailapp.com</syslogHost>
+			<port>XXXXX</port>
+			<facility>USER</facility>
+			<suffixPattern>my-app: %logger %msg</suffixPattern>
+		</appender>
+
+		<appender name="STDOUT"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder>
+				<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{5} -
+					%msg%n
+				</pattern>
+			</encoder>
+		</appender>
+		<root level="DEBUG">
+			<appender-ref ref="STDOUT" />
+			<appender-ref ref="PAPERTRAIL" />
+		</root>
+	</configuration>
+	
+5) Temos que colocar nosso host:port (obtidos no passo 2) no conteúdo do arquivo logback.xml. Veja como ficou o arquivo:
+
+	<?xml version="1.0" encoding="UTF-8"?>
+	<configuration>
+
+		<appender name="PAPERTRAIL"
+			class="ch.qos.logback.classic.net.SyslogAppender">
+			<syslogHost>logs3.papertrailapp.com</syslogHost>
+			<port>28841</port>
+			<facility>USER</facility>
+			<suffixPattern>my-app: %logger %msg</suffixPattern>
+		</appender>
+
+		<appender name="STDOUT"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder>
+				<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{5} -
+					%msg%n
+				</pattern>
+			</encoder>
+		</appender>
+		<root level="DEBUG">
+			<appender-ref ref="STDOUT" />
+			<appender-ref ref="PAPERTRAIL" />
+		</root>
+	</configuration>
+
+6) Agora temos que copiar esse aquivo logback.xml e colocar em todos os projetos que vão usar o LOG.
+
+7) Suba o projeto e volte para á pagina do passo 2 deste passo-a-passo  e já terá o nome de sua máquina lá. Ao clicar no nome de seu
+PC uma tela tipo terminal se abrirá e é onde aparecerá nossos LOG's, faça uma requisição para realizar uma compra e veja os LOG's
+
+8) Veja que tem muito LOG aparecendo, pois a configuração está com nivel DEBUG, podemos mudar para INFO e assim só vamos exibir 
+nossos LOG's. Para isso basta alterar o trecho do arquivo logback.xml:
+
+	<root level="DEBUG">
+		<appender-ref ref="STDOUT" />
+		<appender-ref ref="PAPERTRAIL" />
+	</root>
+
+Para:
+
+	<root level="INFO">
+		<appender-ref ref="STDOUT" />
+		<appender-ref ref="PAPERTRAIL" />
+	</root>
+
+
+Ainda podemos melhorar nosso LOG, pois pensa comigo, e se tivessemos diversos usuários fazendo a mesma requisição, o LOG iria 
+aparecer diversas vezes, mas não saberiamos qual usuário gerou aquele LOG, então podemos passar a identificar o LOG com o 
+Spring Sleuth.
+
+Com Spring Sleuth toda requisição ganha um ID, e o legal que se essa requisição gerar uma outra requisição essa nova requisição
+terá o ID da primeira, ou seja, o ID continua e assim vamos identificar todo o Fluxo que um usuário gerou. Isso se chama ID de
+Agregação.
+
+Adicionando e usando o Spring Sleuth em nosso Projeto. Siga o passo a passo:
+
+1) Nos projetos (que usa LOG) temos que adicionar a dependnecia do Sleuth, então temos que clicar botão direito no projeto 
+-> Spring -> Add Starters -> Sleuth e clicar em Ok.
+
+2) Após adicionar a dependnecia temos que configurar o Logback para usar o Spring Sleuth. A documentação do Sleuth ensina isso.
+Temos que adicionar a tag <include> e a tag <property> que tem o nome CONSOLE LOG PATTERN. Veja como deve ficar os arquivos
+logback.xml:
+
+	<?xml version="1.0" encoding="UTF-8"?>
+	<configuration>
+		<include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+		<appender name="PAPERTRAIL"
+			class="ch.qos.logback.classic.net.SyslogAppender">
+			<syslogHost>logs3.papertrailapp.com</syslogHost>
+			<port>28841</port>
+			<facility>USER</facility>
+		<suffixPattern>%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} 
+		%clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n$
+		{LOG_EXCEPTION_CONVERSION_WORD:-%wEx}</suffixPattern>	</appender>
+
+		<appender name="STDOUT"
+			class="ch.qos.logback.core.ConsoleAppender">
+			<encoder>
+				<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{5} -
+					%msg%n
+				</pattern>
+			</encoder>
+		</appender>
+		<root level="INFO">
+			<appender-ref ref="STDOUT" />
+			<appender-ref ref="PAPERTRAIL" />
+		</root>
+	</configuration>
+
+3) Faça uma requisição para realizar uma compra e veja os LOG's. Agora o LOG vai ter um ID e veja que esse ID é separado por 
+virgula. O primeiro grupo antes da virgula será o ID propagado pela request, ou seja, vai continuar até a requisição ter um fim. Já
+o que vem depois da virgula representa o serviço (projeto) que a requisição bateu, ou seja, se mudar esse valor é que um projeto
+enviou a requisição (chamou) outro projeto.
+
+Veja o id: loja,32c72c3cfeb76aed,32c72c3cfeb76aed
+Onde o primeiro 32c72c3cfeb76aed é o ID que vai vale pra identificar toda a requisição e segundo 32c72c3cfeb76aed identifica a
+aplicação.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
